@@ -31,11 +31,11 @@ let readlineInterface = readline.createInterface({
 
 if (usernameUnredacted.includes("--username=")) {
   username = usernameUnredacted.replace("--username=", "");
-  //   console.log(`Welcome to the File Manager, ${username}!`);
+  console.log(`Welcome to the File Manager, ${username}!`);
 } else {
-  //   console.log(
-  //     `Please provide correct syntax with a username (e.g. npm run start -- --username=Student1)`
-  //   );
+  console.log(
+    `Please provide correct syntax with a username (e.g. npm run start -- --username=Student1)`
+  );
 }
 
 function showCommands() {
@@ -58,7 +58,7 @@ function showCommands() {
   console.log("compress path_to_file path_to_destination");
   console.log("decompress path_to_file path_to_destination");
   console.log(
-    'default compress extention is ".br" if full path was not specified'
+    'If compressed extention was not specified and there are folder with the same name, extention ".br" would be used'
   );
 }
 
@@ -67,37 +67,38 @@ function goUp() {
 }
 
 function goodByeMessage() {
-  //   console.log(`Thank you for using File Manager, ${username}, goodbye!`);
+  console.log(`Thank you for using File Manager, ${username}, goodbye!`);
 }
 
 function showError(err, todo) {
   if (err.code === "ENOENT" && todo === "copyMove") {
     console.log(
-      `There is no such directory to copy to or you used a path to a file instead of a path to directory`
+      `Operation failed. There is no such directory to copy to or you used a path to a file instead of a path to directory`
     );
-  } else if (err.code === "ENOENT" && todo !== 'ignore') {
-    console.log(`File or directory is missing`);
-  } else {
-    console.log(err);
+  } else if (
+    err.code === "ENOENT" &&
+    todo !== "copyMove" &&
+    todo !== "ignore"
+  ) {
+    console.log(`Operation failed. File or directory is missing`);
+  } else if (err.code !== "ENOENT") {
+    console.log(`Operation failed\n${err}`);
   }
 }
 
-
-
 async function checkExistence(filteredPath, functionName) {
-  
   async function readFile(pathToFile) {
     const fileStream = createReadStream(pathToFile);
     return new Promise((resolve, reject) => {
       fileStream.on("data", (data) => {
         process.stdout.write(data);
       });
-  
+
       fileStream.on("end", () => {
         process.stdout.write("\n");
         resolve();
       });
-  
+
       fileStream.on("error", (error) => {
         reject(error);
       });
@@ -109,13 +110,13 @@ async function checkExistence(filteredPath, functionName) {
 
     if (testedPath.isDirectory()) {
       if (functionName === "cat") {
-        console.log("You entered a path to a directory, not a path to a file");
+        console.log("Operation failed. You entered a path to a directory, not a path to a file");
       } else if (functionName === "cd") {
         currentDirectory = filteredPath;
       }
     } else {
       if (functionName === "cd") {
-        console.log("You entered a path to a file, not a path to a directory");
+        console.log("Operation failed. You entered a path to a file, not a path to a directory");
       } else if (functionName === "cat") {
         return await readFile(filteredPath);
       }
@@ -170,7 +171,7 @@ async function createNewFile(newFileName) {
   async function writeFile() {
     try {
       await fs.writeFile(newFileName, "");
-      console.log(`New file ${newFileName} was created`);
+      console.log(`Operation failed. New file ${newFileName} was created`);
     } catch (err) {
       showError(err);
     }
@@ -178,15 +179,13 @@ async function createNewFile(newFileName) {
   try {
     const newFileNameCheck = await fs.stat(newFileName);
     if (newFileNameCheck.isDirectory()) {
-      console.log(`You are trying to create a directory, not a file`);
+      console.log(`Operation failed. You are trying to create a directory, not a file`);
     } else {
       await writeFile();
     }
   } catch (err) {
     await writeFile();
-    if (err.code !== "ENOENT") {
-      console.log(err);
-    }
+    showError(err, 'ignore')
   }
 }
 
@@ -201,7 +200,7 @@ async function renameFile(oldFilePath, newName) {
     } catch (err) {
       if (err.code === "EPERM") {
         console.log(
-          `You can't have a file without extention and a folder with the same name at the same time`
+          `Operation failed. You can't have a file without extention and a folder with the same name at the same time`
         );
       } else {
         showError(err);
@@ -217,18 +216,16 @@ async function renameFile(oldFilePath, newName) {
       try {
         const newNameCheck = await fs.stat(join(dirName, newName));
         if (newNameCheck.isFile()) {
-          console.log(`${newName} already exists`);
+          console.log(`Operation failed. ${newName} already exists`);
         } else if (newNameCheck.isDirectory()) {
           await rename(dirName, fileName);
         }
       } catch (err) {
         await rename(dirName, fileName);
-        if (err.code !== "ENOENT") {
-          showError(err, fileName);
-        }
+        showError(err, "ignore");
       }
     } else {
-      console.log(`You are trying to rename a folder, not a file`);
+      console.log(`Operation failed. You are trying to rename a folder, not a file`);
     }
   } catch (err) {
     showError(err);
@@ -248,7 +245,7 @@ async function copyMoveFile(oldFile, newLocation, command) {
           if (
             path.resolve(oldFile) === path.resolve(join(newLocation, fileName))
           ) {
-            console.log("Are you trying to move a file to the same folder?");
+            console.log("Operation failed. Are you trying to move a file to the same folder?");
           } else {
             fileStream.pipe(writeStream);
             return new Promise((resolve, reject) => {
@@ -272,13 +269,13 @@ async function copyMoveFile(oldFile, newLocation, command) {
             });
           }
         } else {
-          console.log(`${newLocation} is not a directory`);
+          console.log(`Operation failed. ${newLocation} is not a directory`);
         }
       } catch (err) {
         showError(err, "copyMove");
       }
     } else {
-      console.log(`${oldFile} is a directory, not a file`);
+      console.log(`Operation failed. ${oldFile} is a directory, not a file`);
     }
   } catch (err) {
     showError(err);
@@ -297,7 +294,7 @@ async function removeFile(pathToAfile) {
         showError(err);
       }
     } else if (newLocationChecked.isDirectory()) {
-      console.log(`You are trying to remove a directory`);
+      console.log(`Operation failed. You are trying to remove a directory`);
     }
   } catch (err) {
     showError(err);
@@ -305,7 +302,6 @@ async function removeFile(pathToAfile) {
 }
 
 async function calcHash(filePath) {
-  console.log(filePath);
   try {
     await fs.access(filePath);
     const content = await fs.readFile(filePath, "utf-8");
@@ -346,7 +342,7 @@ async function systemInfo(argument) {
   } else if (argument === "--architecture") {
     console.log(`Your CPU architecture is ${process.arch}`);
   } else {
-    console.log("wrong argument, type helf for the list of supported commands");
+    console.log("Operation failed. Wrong argument, type help for the list of supported commands");
   }
 }
 
@@ -356,7 +352,7 @@ async function compressionHub(pathToFile, pathToFolder) {
     const streamOutput = createWriteStream(output);
     const gzip = zlib.createBrotliCompress();
     streamInput.pipe(gzip).pipe(streamOutput);
-    console.log(`file was successfully compressed`)
+    console.log(`file was successfully compressed`);
   }
 
   try {
@@ -384,7 +380,7 @@ async function compressionHub(pathToFile, pathToFolder) {
       }
     } else {
       console.log(
-        "Your are using path to directory as a first argument, not a path to a file"
+        "Operation failed. Your are using path to directory as a first argument, not a path to a file"
       );
     }
   } catch (err) {
@@ -398,7 +394,7 @@ async function decompressionHub(pathToFile, pathToFolder) {
     const streamOutput = createWriteStream(output);
     const gunzip = zlib.createBrotliDecompress();
     streamInput.pipe(gunzip).pipe(streamOutput);
-    console.log(`file was successfully decompressed`)
+    console.log(`file was successfully decompressed`);
   }
 
   try {
@@ -426,7 +422,7 @@ async function decompressionHub(pathToFile, pathToFolder) {
       }
     } else {
       console.log(
-        "Your are using path to directory as a first argument, not a path to a file"
+        "Operation failed. Your are using path to directory as a first argument, not a path to a file"
       );
     }
   } catch (err) {
@@ -447,7 +443,7 @@ function userInteraction() {
         // Argument in a quotes ("")
         result.push(match[1]);
       } else {
-        // Arguments without quotes ("")
+        // Arguments without quotes
         result.push(match[0]);
       }
     }
@@ -456,7 +452,7 @@ function userInteraction() {
     const argument1 = result[1] ? result[1].toString("") : null;
     const argument2 = result[2] ? result[2].toString("") : null;
 
-    if (text === ".exit") {
+    if (text.trim() === ".exit") {
       goodByeMessage();
       readlineInterface.close();
     } else {
@@ -468,7 +464,7 @@ function userInteraction() {
             path.resolve(currentDirectory) ===
             path.resolve(join(currentDirectory, `..${pathSeparator}`))
           ) {
-            console.log("You are already at the top directory");
+            console.log("Operation failed. You are already at the top directory");
           } else {
             goUp();
           }
@@ -477,7 +473,7 @@ function userInteraction() {
         }
       } else if (oneArgumentCommands.includes(command)) {
         if (command === text.trim().toLowerCase() || !argument1) {
-          console.log(`Your ${text.trim()} argument is empty`);
+          console.log(`Operation failed. Your ${text.trim()} argument is empty`);
         } else {
           if (command === "cd" || command === "cat") {
             await checkExistence(await createNewPath(argument1), command);
@@ -493,13 +489,12 @@ function userInteraction() {
         }
       } else if (multiArgumentsCommands.includes(command)) {
         if (!argument2) {
-          console.log("Second argument is missing");
+          console.log("Operation failed. Second argument is missing");
         } else {
           if (command === "rn") {
-            // peredelat
             if (argument2.includes(pathSeparator)) {
               console.log(
-                "Second argument should be a new file name, not a path with a file name"
+                "Operation failed. Second argument should be a new file name, not a path"
               );
             } else {
               await renameFile(await createNewPath(argument1), argument2);
@@ -523,7 +518,7 @@ function userInteraction() {
           }
         }
       } else {
-        console.log("Invalid input");
+        console.log("Invalid input. You can use help command for more information");
       }
       showCurrentPath();
       userInteraction();
@@ -536,8 +531,7 @@ function interfaceIntroMessage() {
     showCurrentPath();
     greeting = 1;
   }
-  return "\n";
-  // return "Please print a command and wait for result\n";
+  return "Please print a command and wait for result\n";
 }
 
 function showCurrentPath() {
