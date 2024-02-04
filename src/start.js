@@ -6,6 +6,7 @@ import fs from "fs/promises";
 import { createReadStream } from "fs";
 import { createWriteStream } from "fs";
 import { EOL } from "os";
+import crypto from "crypto";
 
 const usernameUnredacted = process.argv.slice(2).toString();
 const startDirectory = os.homedir();
@@ -296,6 +297,18 @@ async function removeFile(pathToAfile) {
   }
 }
 
+async function calcHash(filePath) {
+  console.log(filePath);
+    try {
+        await fs.access(filePath);
+        const content = await fs.readFile(filePath, "utf-8");
+        const hash = crypto.createHash("sha256").update(content).digest("hex");
+        console.log(hash);
+    } catch (err) {
+        missing(err);
+    }
+}
+
 async function systemInfo(argument) {
   if (argument === '--EOL') {
     if (EOL === '\r\n') {
@@ -378,6 +391,8 @@ function userInteraction() {
             await removeFile(await createNewPath(argument1));
           } else if (command === "os") {
             await systemInfo((argument1));
+          } else if (command === "hash") {
+            await calcHash(await createNewPath(argument1));
           }
         }
       } else if (multiArgumentsCommands.includes(command)) {
