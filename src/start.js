@@ -2,10 +2,10 @@ import os from "os";
 import readline from "readline";
 import path from "path";
 import { join } from "path";
-// import fs from "fs";
 import fs from "fs/promises";
 import { createReadStream } from "fs";
 import { createWriteStream } from "fs";
+import { EOL } from "os";
 
 const usernameUnredacted = process.argv.slice(2).toString();
 const startDirectory = os.homedir();
@@ -16,7 +16,7 @@ if (startDirectory.includes("\\")) {
 } else if (startDirectory.includes("/")) {
   pathSeparator = "/";
 }
-const singleLineCommands = ["ls", "up"];
+const singleLineCommands = ["ls", "up", "help"];
 const oneArgumentCommands = ["cd", "cat", "add", "rm", "os", "hash"];
 const multiArgumentsCommands = ["rn", "cp", "mv", "compress", "decompress"];
 
@@ -34,6 +34,27 @@ if (usernameUnredacted.includes("--username=")) {
   //   console.log(
   //     `Please provide correct syntax with a username (e.g. npm run start -- --username=Student1)`
   //   );
+}
+
+function showCommands() {
+  console.log("Here is a list of commands that you can use")
+  console.log("up")
+  console.log("cd path_to_directory")
+  console.log("ls")
+  console.log("cat path_to_file")
+  console.log("add new_file_name")
+  console.log("rn path_to_file new_filename")
+  console.log("cp path_to_file path_to_new_directory")
+  console.log("mv path_to_file path_to_new_directory")
+  console.log("rm path_to_file")
+  console.log("os --EOL")
+  console.log("os --cpus")
+  console.log("os --homedir")
+  console.log("os --username")
+  console.log("os --architecture")
+  console.log("hash path_to_file")
+  console.log("compress path_to_file path_to_destination")
+  console.log("decompress path_to_file path_to_destination")
 }
 
 function goUp() {
@@ -275,6 +296,35 @@ async function removeFile(pathToAfile) {
   }
 }
 
+async function systemInfo(argument) {
+  if (argument === '--EOL') {
+    if (EOL === '\r\n') {
+      console.log('Your default system End-Of-Line is \\r\\n')
+    } else if (EOL === '\r') {
+      console.log('Your default system End-Of-Line is \\r')
+    } else if (EOL === '\n') {
+      console.log('Your default system End-Of-Line is \\n')
+  } 
+  } else if (argument === '--cpus') {
+    const cpuCores = os.cpus().length;
+    console.log(`Total number of CPU's cores - ${cpuCores}`)
+    os.cpus().map((core, index) => {
+        console.log(`Core ${index + 1} name is ${core.model} and it's clock rate is ${Math.round((core.speed * 0.10))/100}GHz`)
+    })
+  }
+   else if (argument === '--homedir') {
+    console.log(`Your home directory is ${startDirectory}`)
+  }
+   else if (argument === '--username') {
+    console.log(`Your username is ${os.userInfo().username} and your machine name is ${os.hostname}`)
+  }
+   else if (argument === '--architecture') {
+    console.log(`Your CPU architecture is ${process.arch}`)
+  } else {
+    console.log('wrong argument, type helf for the list of supported commands')
+  }
+}
+
 function userInteraction() {
   readlineInterface.question(interfaceIntroMessage(), async (text) => {
     text = path.normalize(text);
@@ -313,6 +363,8 @@ function userInteraction() {
           } else {
             goUp();
           }
+        }else if (command === "help") {
+          showCommands();
         }
       } else if (oneArgumentCommands.includes(command)) {
         if (command === text.trim().toLowerCase() || !argument1) {
@@ -324,6 +376,8 @@ function userInteraction() {
             await createNewFile(await createNewPath(argument1));
           } else if (command === "rm") {
             await removeFile(await createNewPath(argument1));
+          } else if (command === "os") {
+            await systemInfo((argument1));
           }
         }
       } else if (multiArgumentsCommands.includes(command)) {
