@@ -8,28 +8,17 @@ import { createReadStream } from "fs";
 import { createWriteStream } from "fs";
 
 const usernameUnredacted = process.argv.slice(2).toString();
-const rootDirectory = os.homedir();
+const startDirectory = os.homedir();
 let currentDirectory = os.homedir();
 let pathSeparator;
-if (rootDirectory.includes("\\")) {
+if (startDirectory.includes("\\")) {
   pathSeparator = "\\";
-} else if (rootDirectory.includes("/")) {
+} else if (startDirectory.includes("/")) {
   pathSeparator = "/";
 }
 const singleLineCommands = ["ls", "up"];
-const multiLineCommands = [
-  "cd",
-  "cat",
-  "add",
-  "rn",
-  "cp",
-  "mv",
-  "rm",
-  "os",
-  "hash",
-  "compress",
-  "decompress",
-];
+const oneArgumentCommands = ["cd", "cat", "add", "rm", "os", "hash"];
+const multiArgumentsCommands = ["rn", "cp", "mv", "compress", "decompress"];
 
 let greeting = 0;
 let username;
@@ -55,8 +44,34 @@ function goodByeMessage() {
   //   console.log(`Thank you for using File Manager, ${username}, goodbye!`);
 }
 
-function operationFailedMessage() {
-  //   console.log("Operation failed");
+function missing(err, funcName) {
+  if (err.code === "ENOENT" && funcName === "copyMove") {
+    console.log(
+      `There are no such directory to copy to or you used a path to a file instead of a path to directory`
+    );
+  } else if (err.code === "ENOENT") {
+    console.log(`File or directory is missing`);
+  } else {
+    console.log(err);
+  }
+}
+
+async function readFile(pathToFile) {
+  const fileStream = createReadStream(pathToFile);
+  return new Promise((resolve, reject) => {
+    fileStream.on("data", (data) => {
+      process.stdout.write(data);
+    });
+
+    fileStream.on("end", () => {
+      process.stdout.write("\n");
+      resolve();
+    });
+
+    fileStream.on("error", (error) => {
+      reject(error);
+    });
+  });
 }
 
 async function checkExistence(filteredPath, functionName) {
@@ -77,7 +92,7 @@ async function checkExistence(filteredPath, functionName) {
       }
     }
   } catch (err) {
-    console.log("No such file or directory exists");
+    missing(err);
   }
 }
 
@@ -86,20 +101,6 @@ async function createNewPath(pathToCheck) {
     return pathToCheck;
   } else {
     return join(currentDirectory, pathToCheck);
-  }
-}
-
-async function checkPathType(newPath, functionName) {
-  if (path.isAbsolute(newPath)) {
-    const absolutePathLength = rootDirectory.length;
-    const pathToCheck = newPath.slice(0, absolutePathLength);
-    if (path.resolve(rootDirectory) !== path.resolve(pathToCheck)) {
-      console.log(`Your absolute path must start with ${rootDirectory}`);
-    } else {
-      await checkExistence(newPath, functionName);
-    }
-  } else {
-    await checkExistence(join(currentDirectory, newPath), functionName);
   }
 }
 
@@ -131,145 +132,127 @@ async function listDirectoriesAndFiles() {
     });
 
     console.table(results);
-  } catch (error) {
-    console.error("Ошибка при чтении содержимого директории", error);
+  } catch (err) {
+    missing(err);
   }
-}
-
-async function readFile(pathToFile) {
-  const fileStream = createReadStream(pathToFile);
-  return new Promise((resolve, reject) => {
-    fileStream.on("data", (data) => {
-      process.stdout.write(data);
-    });
-
-    fileStream.on("end", () => {
-      process.stdout.write("\n");
-      resolve();
-    });
-
-    fileStream.on("error", (error) => {
-      reject(error);
-    });
-  });
 }
 
 async function createNewFile(newFileName) {
+  async function writeFile() {
+    try {
+      await fs.writeFile(newFileName, "");
+      console.log(`New file ${newFileName} was created`);
+    } catch (err) {
+      missing(err);
+    }
+  }
   try {
-    await fs.writeFile(join(currentDirectory, newFileName), "");
-    console.log(`New file ${newFileName} was created`);
+    const newFileNameCheck = await fs.stat(newFileName);
+    if (newFileNameCheck.isDirectory()) {
+      console.log(`You are trying to create a directory, not a file`);
+    } else {
+      await writeFile();
+    }
   } catch (err) {
-    console.log(err);
+    await writeFile();
+    if (err.code !== "ENOENT") {
+      console.log(err);
+    }
   }
 }
 
-async function renameFile(oldName, newName) {
-  let newCopyDirectory;
-  let realOldName = oldName;
-  if (oldName.includes(pathSeparator)) {
-    newCopyDirectory = oldName.split(pathSeparator);
-    realOldName = newCopyDirectory.pop();
-    newCopyDirectory = newCopyDirectory.join(pathSeparator);
-  } else {
-    newCopyDirectory = currentDirectory;
+async function renameFile(oldFilePath, newName) {
+  async function rename(dirName, oldFileName) {
+    try {
+      await fs.rename(oldFilePath, join(dirName, newName)).then(() => {
+        console.log(
+          `File was successfully renamed from ${oldFileName} to ${newName}`
+        );
+      });
+    } catch (err) {
+      if (err.code === "EPERM") {
+        console.log(
+          `You can't have a file without extention and a folder with the same name at the same time`
+        );
+      } else {
+        missing(err);
+      }
+    }
   }
 
   try {
-    await fs.access(join(currentDirectory, newCopyDirectory, newName));
-    try {
-      const newNameCheck = await fs.stat(
-        join(currentDirectory, newCopyDirectory, newName)
-      );
-      if (newNameCheck.isFile()) {
-        console.log(`${newName} already exists`);
-      } else if (!newNameCheck.isFile()) {
-        console.log(
-          `${newName} already exists and ${newName} is a directory, not a file`
-        );
-      }
-    } catch (err) {
-      console.log(err);
-    }
-  } catch (error) {
-    if (error.code === "ENOENT") {
+    const oldFileChecked = await fs.stat(oldFilePath);
+    if (oldFileChecked.isFile()) {
+      const fileName = path.win32.basename(oldFilePath);
+      const dirName = path.dirname(oldFilePath);
       try {
-        const oldNameCheck = await fs.stat(join(currentDirectory, oldName));
-        if (oldNameCheck.isFile()) {
-          fs.rename(
-            join(currentDirectory, oldName),
-            join(currentDirectory, newCopyDirectory, newName),
-            (error) => {
-              if (error) {
-                console.log(error);
-              }
-            }
-          );
-          console.log(
-            `File was successfully renamed from ${realOldName} to ${newName}`
-          );
-        } else {
-          console.log(`${oldName} is a directory, not a file`);
+        const newNameCheck = await fs.stat(join(dirName, newName));
+        if (newNameCheck.isFile()) {
+          console.log(`${newName} already exists`);
+        } else if (newNameCheck.isDirectory()) {
+          await rename(dirName, fileName);
         }
       } catch (err) {
-        console.log(err);
-        console.log(`${join(currentDirectory, oldName)} do not exist`);
+        await rename(dirName, fileName);
+        if (err.code !== "ENOENT") {
+          missing(err, fileName);
+        }
       }
     } else {
-      console.log(error);
+      console.log(`You are trying to rename a folder, not a file`);
     }
+  } catch (err) {
+    missing(err);
   }
 }
 
 async function copyMoveFile(oldFile, newLocation, command) {
   try {
-    const newLocationChecked = await fs.stat(newLocation);
-
-    if (newLocationChecked.isDirectory()) {
+    const oldFileChecked = await fs.stat(oldFile);
+    if (oldFileChecked.isFile()) {
       try {
-        const oldFileChecked = await fs.stat(oldFile);
-        if (oldFileChecked.isFile()) {
+        const newLocationChecked = await fs.stat(newLocation);
+        if (newLocationChecked.isDirectory()) {
           const fileName = path.win32.basename(oldFile);
           const fileStream = createReadStream(oldFile);
           const writeStream = createWriteStream(join(newLocation, fileName));
-          fileStream.pipe(writeStream);
-          return new Promise((resolve, reject) => {
-            fileStream.on("end", async () => {
-              console.log(
-                `Copying file ${fileName} to ${newLocation} was successful`
-              );
-              if (command === "mv") {
-                try {
-                  await fs.unlink(oldFile);
-                } catch (err) {
-                  console.log(err);
+          if (
+            path.resolve(oldFile) === path.resolve(join(newLocation, fileName))
+          ) {
+            console.log("Are you trying to move a file to the same folder?");
+          } else {
+            fileStream.pipe(writeStream);
+            return new Promise((resolve, reject) => {
+              fileStream.on("end", async () => {
+                console.log(
+                  `Copying file ${fileName} to ${newLocation} was successful`
+                );
+                if (command === "mv") {
+                  try {
+                    await fs.unlink(oldFile);
+                  } catch (err) {
+                    missing(err);
+                  }
                 }
-              }
-              resolve();
-            });
+                resolve();
+              });
 
-            fileStream.on("error", (error) => {
-              reject(error);
+              fileStream.on("error", (error) => {
+                reject(error);
+              });
             });
-          });
+          }
         } else {
-          console.log(`${oldFile} is a directory, not a file`);
+          console.log(`${newLocation} is not a directory`);
         }
       } catch (err) {
-        if (err.code === "ENOENT") {
-          console.log(`File that you are trying to copy does not exist`);
-        } else {
-          console.log(err);
-        }
+        missing(err, "copyMove");
       }
     } else {
-      console.log(`${newLocation} is not a directory`);
+      console.log(`${oldFile} is a directory, not a file`);
     }
   } catch (err) {
-    if (err.code === "ENOENT") {
-      console.log(`The directory or a file do not exist at ${newLocation}`);
-    } else {
-      console.log(err); // Убрать потом
-    }
+    missing(err);
   }
 }
 
@@ -282,30 +265,19 @@ async function removeFile(pathToAfile) {
         await fs.unlink(pathToAfile);
         console.log(`file ${fileName} was successfully removed`);
       } catch (err) {
-        console.log(err);
+        missing(err);
       }
     } else if (newLocationChecked.isDirectory()) {
       console.log(`You are trying to remove a directory`);
     }
   } catch (err) {
-    if (err.code === "ENOENT") {
-      console.log(`File that you are trying to remove does not exist`);
-    } else {
-      console.log(err);
-    }
+    missing(err);
   }
 }
 
 function userInteraction() {
   readlineInterface.question(interfaceIntroMessage(), async (text) => {
-    text = text
-      .toLowerCase()
-      .trimStart()
-      .replaceAll("/", pathSeparator)
-      .replaceAll("\\", pathSeparator);
-
-    // Существует path.delimiter
-    // Существует path.normalize(path)
+    text = path.normalize(text);
 
     const regex = /[^\s"]+|"([^"]*)"/gi;
     let match;
@@ -321,7 +293,7 @@ function userInteraction() {
       }
     }
 
-    const command = result[0] ? result[0].toString("") : null;
+    const command = result[0] ? result[0].toString("").toLowerCase() : null;
     const argument1 = result[1] ? result[1].toString("") : null;
     const argument2 = result[2] ? result[2].toString("") : null;
 
@@ -329,62 +301,53 @@ function userInteraction() {
       goodByeMessage();
       readlineInterface.close();
     } else {
-      if (
-        command === text.trim() &&
-        !singleLineCommands.includes(command) &&
-        multiLineCommands.includes(command)
-      ) {
-        console.log(`Your ${text.trim()} path is empty`);
-      } else if (command === "up") {
-        if (path.resolve(rootDirectory) === path.resolve(currentDirectory)) {
-          console.log("You are already at the top directory");
-        } else {
-          goUp();
+      if (singleLineCommands.includes(command)) {
+        if (command === "ls") {
+          await listDirectoriesAndFiles();
+        } else if (command === "up") {
+          if (
+            path.resolve(currentDirectory) ===
+            path.resolve(join(currentDirectory, `..${pathSeparator}`))
+          ) {
+            console.log("You are already at the top directory");
+          } else {
+            goUp();
+          }
         }
-      } else if (command === "cd") {
-        const path = text.slice(3, text.length);
-        await checkPathType(path, "cd");
-      } else if (command === "ls") {
-        await listDirectoriesAndFiles();
-      } else if (command === "cat") {
-        const path = text.slice(4, text.length);
-        await checkPathType(path, "cat");
-      } else if (command === "add") {
-        const fileName = text.slice(4, text.length);
-        await createNewFile(fileName);
-      } else if (command === "rn") {
-        const oldName = argument1;
-        const newName = argument2;
-        if (newName.includes(pathSeparator)) {
-          console.log(
-            "Second argument should be a new file name, not a path with a file name"
-          );
-        } else if (argument1 && argument2) {
-          await renameFile(oldName, newName);
+      } else if (oneArgumentCommands.includes(command)) {
+        if (command === text.trim().toLowerCase() || !argument1) {
+          console.log(`Your ${text.trim()} argument is empty`);
         } else {
-          console.log("Old or new name is missing");
+          if (command === "cd" || command === "cat") {
+            await checkExistence(await createNewPath(argument1), command);
+          } else if (command === "add") {
+            await createNewFile(await createNewPath(argument1));
+          } else if (command === "rm") {
+            await removeFile(await createNewPath(argument1));
+          }
         }
-      } else if (command === "cp" || command === "mv") {
-        const oldPath = argument1;
-        const newPath = argument2;
-        if (oldPath && newPath) {
-          await copyMoveFile(
-            await createNewPath(oldPath),
-            await createNewPath(newPath),
-            command
-          );
+      } else if (multiArgumentsCommands.includes(command)) {
+        if (!argument2) {
+          console.log("Second argument is missing");
         } else {
-          console.log("Old or new path is missing");
-        }
-      } else if (command === "rm") {
-        if (argument1) {
-          await removeFile(await createNewPath(argument1));
-        } else {
-          console.log("Please enter a path to a file or a file name");
+          if (command === "rn") {
+            if (argument2.includes(pathSeparator)) {
+              console.log(
+                "Second argument should be a new file name, not a path with a file name"
+              );
+            } else {
+              await renameFile(await createNewPath(argument1), argument2);
+            }
+          } else if (command === "cp" || command === "mv") {
+            await copyMoveFile(
+              await createNewPath(argument1),
+              await createNewPath(argument2),
+              command
+            );
+          }
         }
       } else {
-        // console.log("Invalid input");
-        // showCurrentPath();
+        console.log("Invalid input");
       }
       showCurrentPath();
       userInteraction();
@@ -398,7 +361,7 @@ function interfaceIntroMessage() {
     greeting = 1;
   }
   return "\n";
-  // return "Please print commands and wait for result\n";
+  // return "Please print a command and wait for result\n";
 }
 
 function showCurrentPath() {
